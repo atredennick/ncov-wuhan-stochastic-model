@@ -7,17 +7,23 @@ model {
   totN[1] <- totNPopDat
   infectDet[1] <- 1
   infectUnDet[1] <- 0
-  tau.p ~ dunif(0, 10)
+  iTest[1] <- 1
+  sigma.p ~ dunif(0,5)
+  tau.p <- 1/(sigma.p^2)
   
-  N[1, 1] ~ dunif(S1, S1+2)
-  for(ii in 2:8){
-    N[1, ii] ~ dunif(0, 1)
+  N[1, 1] ~ dpois(S1)
+  for(ii in 2:5){
+    N[1, ii] ~ dpois(0)
   }
-  N[1, 9] ~ dunif(1, 2)
+  N[1, 6] ~ dpois(0)
+  for(ii in 7:8){
+    N[1, ii] ~ dpois(0)
+  }
+  N[1, 9] ~ dpois(2)
   for(ii in 10:nClass){
-    N[1, ii] ~ dunif(0, 1)
+    N[1, ii] ~ dpois(0)
   }
-
+  S[1] <- S1
   
   for(t in 2:nSimProc) {
     # Rate of S -> I
@@ -72,6 +78,17 @@ model {
     
     # Estimates of mean of posterior distribution
     mu[t, 1:nClass] <- A[,,t] %*% N[t-1, 1:nClass]
+    iTest[t] <- sum(mu[t, 8:11])
+    
+    # for(j in 1:nClass){
+    #   for(k in 1:nClass){
+    #     muT[t, j, k] ~ dmulti(A[j,k,t], N[t-1, j])
+    #   }
+    # }
+    # 
+    # for(i in 1:nClass){
+    #   mu[t,i] <- sum(muT[t, i, 1:nClass])
+    # }
     
     # Get logs of deterministic predictions
     for(j in 1:nClass){
@@ -82,17 +99,19 @@ model {
     
     # Exponentiate log of population size
     for(j in 1:nClass){
-      N[t,j] <- min(exp(log_N[t,j]),10000)
+      N[t,j] <- min(exp(log_N[t,j]), 60000000)
     }
     totN[t] <- sum(N[t,1:nClass])
     
     # Likelihood based on case incidence
-    infectUnDet[t] <- sum(N[t, 13:16])  # undetected infections
-    infectDet[t] <- sum(N[t, 9:12])  # detected infections
+    infectUnDet[t] <- sum(N[t, 12:15])  # undetected infections
+    infectDet[t] <- sum(N[t, 8:11])  # detected infections
+    S[t] <- N[t,1]
   }  # end time step
   
   for(lt in 2:nSimDat) {
     yCases[lt] ~ dpois(infectDet[iDatInProc[lt]])  # likelihood of data given the model
   }
+
 }  # end model
 /*End of Model*/

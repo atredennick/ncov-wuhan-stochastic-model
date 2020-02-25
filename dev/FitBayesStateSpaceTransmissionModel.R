@@ -90,7 +90,7 @@ NA_matrix <- function(nrow, ncol, nyr){
 nClass <- 18
 nSimDat <- length(yCumInfDet)
 dt <- 1
-nSimProc <- nSimDat / dt
+nSimProc <- (nSimDat) / dt
 steps <- 1:nSimProc
 iDatInProc <- steps[seq(1, nSimProc, 1/dt)]
 
@@ -118,21 +118,34 @@ datList <- list(yCases = yCumInfDet,
                 eta = eta,
                 q = qt,
                 c = 1,
-                S1 = 59002000 - 1,
+                S1 = 59002000 - 40,
                 totNPopDat = 59002000)
 
-n.iter=5000
-n.update=5000
-n.adapt=5000
+n.iter=1000
+n.update=1000
+n.adapt=1000
 model= "./dev/COVID-StateSpace-JAGS.R"
 jm=jags.model(model, data=datList,n.chains=1, n.adapt = n.adapt)
 update(jm,progress.bar="text", n.iter=n.update)
-outMCMC=coda.samples(jm,variable.names=c("infectDet"),n.iter=n.iter)
+outMCMC=coda.samples(jm,variable.names=c("iTest"),n.iter=n.iter)
 quants <- summary(outMCMC)$quantiles
+
+
+
 I <- quants[,3]
 
-plot(data.province$date, cumsum(data.province$Hubei), log = "y", ylim = c(1, 100000))
-lines(data.province$date, I)
-lines(data.province$date, quants[,1], lty =2)
-lines(data.province$date, quants[,5], lty = 2)
+xb <- 1:length(I)
+plot(xb, I,xlab='',ylab='Cases',col=1, log = "y", type = "l")
+day <- data.province$date - start
+day <- xb
+lines(day, cumsum(data.province$Hubei), type='h', col='lightskyblue', lwd=3, lend='butt' )
+lines(xb, quants[,3])
+lines(xb, quants[,2], lty = 2)
+lines(xb, quants[,4], lty = 2)
 
+
+
+
+# plot(I, type = "l")
+# lines(quants[,1], lty =2)
+# lines(quants[,5], lty = 2)
