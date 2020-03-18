@@ -505,7 +505,7 @@ out64.natural <- evaluate.model(params=list(beta0=0.6584, sigma=1/6.4, z=1200, b
                                                    I1 = 7, I2= 7, I3=7, I4=7, Iu1=0, Iu2=0, Iu3=0, Iu4=0,
                                                    H=0, Ru=0, C=0),
                            nsims=15, nstep=NULL, start=as.Date("2020-03-01"))
-plot.model(out64.natural, log='', title='Benchmark: Natural epidemic')
+plot.model(out64.natural, log='y', title='Benchmark: Natural epidemic')
 ```
 
 ### Baseline
@@ -521,7 +521,7 @@ out64.baseline <- evaluate.model(params=list(beta0=0.6584, sigma=1/6.4, z=12, b=
                                                    I1 = 7, I2= 7, I3=7, I4=7, Iu1=0, Iu2=0, Iu3=0, Iu4=0,
                                                    H=0, Ru=0, C=0),
                            nsims=15, nstep=NULL, start=as.Date("2020-03-01"))
-plot.model(out64.baseline, log='', title='Baseline: Rapid case identification but no social distancing')
+plot.model(out64.baseline, log='y', title='Baseline: Rapid case identification but no social distancing')
 ```
 
 
