@@ -442,6 +442,38 @@ plot.model2 <- function(data, log='y'){
 # }
 ```
 
+
+```{r}
+# plot daily case notificatiopns
+plot.cases <- function(model, data){
+  
+  #peak <- c()
+    
+  max.time<-max(model[[1]]$cum.time) #maximum time in first simulation
+  
+  get.curve <- function(x){
+    out <- x[[i]]
+    dt <- x$cum.time[2]-x$cum.time[1]
+    report.times <- seq(1,(length(x$cum.time)), by=1/dt)
+    case.notifications <- diff(x$C[report.times])
+  }
+  
+  plot(get.curve(model[[1]]), type='l', ylim=c(0,1.6*max(get.curve(model[[1]]))),
+       xlab='Day', ylab='New case notifications', col=col.cases.ci, axes=FALSE)
+  for(i in 2:length(model)) lines(get.curve(model[[i]]), type='l', col=col.cases.ci)
+  axis(1, at=seq(0,max.time,5), labels=format(start+seq(0,max.time,5), format= '%b %d'))
+  axis(2)
+  box()
+
+  
+  day <- data$date - start
+  lines(day, data$cases, type='h', col=col.cases, lwd=3, lend='butt' )
+  
+  #peak <- c(peak,which.max(case.notifications))
+}
+
+```
+
 ## Scenario analysis
 
 Simulation results are illustrated in the following figures.
@@ -528,7 +560,13 @@ plot.model(out64.baseline, log='y', title='Baseline: Rapid case identification b
 
 ### Interventions
 
-Here we investigate three scenarios corresponding to an inital infectious population of 8, 64, or 128 cases on March 1, approximately one day of presymptomatic transmission, and social distancing interventions begun on March 12. It would appear that the total case reports of 42 by March 13 are most consistent with the intermediate scenario of 64 initial cases.
+Here we investigate three scenarios corresponding to an inital infectious population of 8, 64, or 128 cases on March 1, approximately one day of presymptomatic transmission, and social distancing interventions begun on March 12.
+It would appear that the total case reports of 42 by March 13 (the number reported by the date that the model was created) are most consistent with the intermediate scenario of 64 initial cases.
+At the date of this report, this scenario continues to be best supported by the data.
+
+Each set of simulations is shown twice.
+The first plot shows the *cumulative* number of cases to allow comparison with what a lot of other studies are showing (the curve of "exponential growth").
+The second plot shows the number of *new case notifications*, which is better for comparing the fit of the model to data.
 
 ```{r}
 start=as.Date("2020-03-01")
@@ -539,6 +577,7 @@ out8 <- evaluate.model(params=list(beta0=0.6584, sigma=1/6.4, z=12, b=0.143, a0=
                                                    H=0, Ru=0, C=0),
                            nsims=15, nstep=NULL, start=as.Date("2020-03-01"))
 plot.model(out8, log='y', title='Outbreak started with 8 cases on 1 March and interventions on 12 March')
+plot.cases(out8, georgia)
 
 out64 <- evaluate.model(params=list(beta0=0.6584, sigma=1/6.4, z=12, b=0.143, a0=1/1.5, w=12, c=1, presymptomatic=1, dt=0.05),
                                        init = list(S=10600000, E1=6, E2=6, E3=6, E4=6, E5=6, E6=6,
@@ -546,6 +585,7 @@ out64 <- evaluate.model(params=list(beta0=0.6584, sigma=1/6.4, z=12, b=0.143, a0
                                                    H=0, Ru=0, C=0),
                            nsims=15, nstep=NULL, start=as.Date("2020-03-01"))
 plot.model(out64, log='y', title='Outbreak started with 64 cases on 1 March and interventions on 12 March')
+plot.cases(out64, georgia)
 
 out128 <- evaluate.model(params=list(beta0=0.6584, sigma=1/6.4, z=12, b=0.143, a0=1/1.5, w=12, c=1, presymptomatic=1, dt=0.05),
                                        init = list(S=10600000, E1=13, E2=13, E3=13, E4=13, E5=13, E6=13,
@@ -553,6 +593,8 @@ out128 <- evaluate.model(params=list(beta0=0.6584, sigma=1/6.4, z=12, b=0.143, a
                                                    H=0, Ru=0, C=0),
                            nsims=15, nstep=NULL, start=as.Date("2020-03-01"))
 plot.model(out128, log='y', title='Outbreak started with 128 cases on 1 March and interventions on 12 March')
+plot.cases(out128, georgia)
+
 ```
 
 
@@ -584,7 +626,7 @@ We assume that, on average, case notification takes three days due to the lack o
 Prior to implementation, the effectiveness of interventions is impossible to quantify precisely.
 Studies of previous epidemics have quantified the impact of a variety of social distancing measures. 
 For seasonal influenza, school closure due to holidays (which is presumably not accompanied by other social and hygienic responses) reduced the basic reproduction number from 1.7 to 1.4 (a reduction of 18%).[^2]
-A nationwwide elementary school strikes in Israel in 2000 reduced influenza transmission by 14.6%.[^3]
+A nationwwide elementary school strike in Israel in 2000 reduced influenza transmission by 14.6%.[^3]
 Much more severe social distancing measures taken in Sydney, Australia during the 1918 influenza pandemic reduced the effective reproduction number by 38%.[^4] 
 Finally, preliminary estimates of the effectiveness of the Chinese "lockdown" suggest that this highly intensive social distancing reduced the effective reproduction number from 2.2 to 1.58 (a reduction of 28%)[^5], from 4.65 to 1.8 (a reduction of 61.2%)[^6], or from 2.35 to 1.05 (a reduction of 55%)[^7].
 Our model assumes interventions taken in Georgia around March 12 reduce transmission by 50%.
