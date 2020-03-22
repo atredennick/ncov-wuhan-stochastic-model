@@ -5,9 +5,9 @@ date: "`r format(Sys.time(), '%B %d, %Y')`"
 header-includes:
   - \usepackage{amsmath}
 output:
+  pdf_document: default
   html_document:
     df_print: paged
-  pdf_document: default
 ---
 
 ```{r setup, include=FALSE}
@@ -460,7 +460,57 @@ plot.summary <- function(data){
   axis(1, seq(min(xlim), max(xlim), by=1), labels=formatC(10^seq(min(xlim), max(xlim), by=1), format='d', big.mark=","))
   box()
 }
+```
 
+A fourth plotting function plots predicted vs. observed case notifications.
+
+```{r plot4}
+plot.fit <- function(data){
+  sims <- length(data)
+
+  new.cases <- diff(data[[1]]$C)     # calculate new cases 
+  days <- tail(ceiling(data[[1]]$cum.time),-1)  # get day numbers, drop time 0
+  epicurve <- aggregate(new.cases,by=list(days), FUN=sum)
+  names(epicurve) <- c('day','model')
+  hubei <- data.frame(day =data.province$date - start, observed.cases = data.province$Hubei)
+  plot.data <- merge(hubei,epicurve, all=TRUE)
+  plot.data$day <- as.numeric(plot.data$day)
+  plot.data[is.na(plot.data)] <- 0
+
+  for(i in 2:sims){
+    new.cases <- diff(data[[i]]$C)     # calculate new cases 
+    days <- tail(ceiling(data[[i]]$cum.time),-1)  # get day numbers, drop time 0
+    epicurve <- aggregate(new.cases,by=list(days), FUN=sum)
+    plot.data[,(i+2)] <- epicurve$x
+  }
+  
+  plot.data$lo <- 0
+  plot.data$hi <- 0
+  plot.data$mean <- 0
+  
+  for(i in 1:dim(plot.data)[1]){
+    plot.data$lo[i] <- quantile(plot.data[i, 3:(sims+2)], probs=c(0.25))
+    plot.data$hi[i] <- quantile(plot.data[i, 3:(sims+2)], probs=c(0.75))
+    plot.data$mean[i] <- mean(as.numeric(plot.data[i, 3:(sims+2)]))
+  }
+
+  par(mfrow=c(1,2))
+  plot(plot.data$day, plot.data$observed.cases, type='p', col='black', pch=20, cex=0.7,
+       xlab='Day', ylab='Cases')
+  for(i in 1:dim(plot.data)[1]) lines(rep(plot.data$day[i],2),c(plot.data$lo[i],plot.data$hi[i]), col='grey')
+  
+  plot(plot.data$model, plot.data$observed.cases, pch=20, cex=0.5,
+       xlab='Model prediction',
+       ylab='Observed cases in Hubei',
+       xlim=c(0,max(plot.data$model)), ylim=c(0,max(plot.data$model)))
+  
+  abline(0,1)
+  
+  for(i in 4:(sims+4)) points(plot.data[,i], plot.data$observed.cases, pch=20, cex=0.5)
+  
+  mse <- mean((plot.data$observed.cases[-c(73,74)]-plot.data$mean[-c(73,74)])^2)  # mean squared error dropping two outliers
+  
+}
 ```
 
 ## Parameters
@@ -572,7 +622,7 @@ We have roughly estimated the baseline case detection rate to be $q_0=0.11$, alt
 ```{r q-function}
 fever.clinic <- as.Date('2020-01-09')
 w <- fever.clinic-start+1
-q <- function(t, w=40, q0=0.11, q1=0.98) ifelse(t<=w,q0,q1)
+q <- function(t, w=50, q0=0.11, q1=0.98) ifelse(t<=w,q0,q1)
 ```
 
 In this analysis, we assume a value for $\beta = 0.657$ based on our maximal estimate $R_0=4.6$ (i.e. $4.6/7 \approx 0.657$) for Hubei.
@@ -593,7 +643,8 @@ Note: we have experimented with allowing asymptomatic cases to infect during the
 ```{r sim1}
 start <- as.Date('12/01/2019',format='%m/%d/%Y')
 set.seed(1292020)                #set seed
-out1 <- evaluate.model(init = list(S=59002000,
+out1 <- evaluate.model(params=list(beta0=0.657, sigma=1/6.4, z=45, b=0.143, a0=0.0446, w=40, c=1,  dt=0.05),
+                       init = list(S=59002000,
                                  E1=0, E2=0, E3=0, E4=0, E5=0, E6=0,
                                  I1=1, I2=0, I3=0, I4=0, Iu1=0, Iu2=0, Iu3=0, Iu4=0, 
                                  R=0, Ru=0, Q=0),
@@ -601,6 +652,7 @@ out1 <- evaluate.model(init = list(S=59002000,
 plot.model(out1, log='y')
 plot.model2(out1, log='y')
 #plot.summary(out1)
+plot.fit(out1)
 ```
 
 ### Scenario 2: Earlier spillover event
@@ -795,6 +847,35 @@ out6 <- evaluate.model(init = list(S=59002000,
 #plot.model(out5, log='y')
 plot.model2(out6, log='y')
 ```
+
+### Estimation
+
+By now it is clear that containment happened faster than this model envisioned feasible.
+Probably COVID-19 is more transmissible (higher $\beta$) and more effective response (larger $a_0$) than previously estimated.
+Here we attempt to fit $\beta$ and $a_0$ by minimizing the sum of squared errors.
+
+```{r eval=FALSE}
+obj <- function(parms){
+  beta <- parms[1]
+  a0 <- parms[2]
+  start <- as.Date('12/01/2019',format='%m/%d/%Y')
+  set.seed(1292020)                #set seed
+  out <- evaluate.model(params=list(beta0=beta, sigma=1/6.4, z=45, b=0.143, a0=a0, w=40, c=1,  dt=0.05),
+                       init = list(S=59002000,
+                                 E1=0, E2=0, E3=0, E4=0, E5=0, E6=0,
+                                 I1=1, I2=0, I3=0, I4=0, Iu1=0, Iu2=0, Iu3=0, Iu4=0, 
+                                 R=0, Ru=0, Q=0),
+                     nsims=25, nstep=NULL, start=start)
+   out<- plot.fit(out)
+   return(out)
+}
+
+fit <- optim(c(0.657,0.0446), obj)
+
+```
+
+The best fit parameters are $\beta=0.6584$ and $a_0=0.0778$.
+
 
 ### To Do
 

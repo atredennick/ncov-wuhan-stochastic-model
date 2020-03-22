@@ -1,0 +1,9 @@
+Description,beta0,sigma,z,b,a0,w,c,presymptomatic,dt,S,E1,E2,E3,E4,E5,E6,I1,I2,I3,I4,Iu1,Iu2,Iu3,Iu4,H,Ru,C
+"Natural epidemic with 64 initial infections, no presymptomatic transmission",0.6584,0.15625,1200,0.143,0.6666666667,1200,1,0,0.05,10600000,6,6,6,6,6,6,7,7,7,7,0,0,0,0,0,0,0
+"Rapid case isolation with 64 initial infections, no presymptomatic transmission",0.6584,0.15625,12,0.143,0.6666666667,1200,1,0,0.05,10600000,6,6,6,6,6,6,7,7,7,7,0,0,0,0,0,0,0
+Social distancing with 8 initial infections and no presymptomatic transmission,0.6584,0.15625,12,0.143,0.6666666667,12,1,0,0.05,10600000,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0
+Social distancing with 64 initial infections and no presymptomatic transmission,0.6584,0.15625,12,0.143,0.6666666667,12,1,0,0.05,10600000,6,6,6,6,6,6,7,7,7,7,0,0,0,0,0,0,0
+Social distancing with 128 initial infections and no presymptomatic transmission,0.6584,0.15625,12,0.143,0.6666666667,12,1,0,0.05,10600000,13,13,13,13,13,13,13,13,12,12,0,0,0,0,0,0,0
+"Natural epidemic with 64 initial infections, presymptomatic transmission",0.6584,0.15625,1200,0.143,0.6666666667,1200,1,1,0.05,10600000,6,6,6,6,6,6,7,7,7,7,0,0,0,0,0,0,0
+"Rapid case isolation with 64 initial infections, presymptomatic transmission",0.6584,0.15625,12,0.143,0.6666666667,1200,1,1,0.05,10600000,6,6,6,6,6,6,7,7,7,7,0,0,0,0,0,0,0
+Social distancing with 64 initial infections and presymptomatic transmission,0.6584,0.15625,12,0.143,0.6666666667,12,1,1,0.05,10600000,6,6,6,6,6,6,7,7,7,7,0,0,0,0,0,0,0
