@@ -118,8 +118,8 @@ gamma <- function(z = 12, b=0.143, a0=1/1.5, t){
   #    a0: post intervention isolation ratae
   #    t: time in the model
   
-  gamma <- ifelse(t<=z, gamma <- b, gamma <- a0)
-  return(gamma)
+  out <- ifelse(t<=z, b,  a0)
+  return(out)
 }
 
 eta <- function(t, w=12) ifelse(t<=w,1/3,1/3)
