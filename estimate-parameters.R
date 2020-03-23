@@ -20,54 +20,64 @@ library(synlik)
 source("stochastic-model.R")
 source("simulators.R")
 source('style-definitions.R')
-source("my-smcmc.R")
 
 
-# Pull in data from GitHub ------------------------------------------------
 
-start <- as.Date("2020-03-01")
-state.data <- read.csv('https://raw.githubusercontent.com/CEIDatUGA/COVID-19-DATA/master/UScases_by_state_wikipedia.csv?token=ABQMQXYOBV7TFRDQXWX2YQC6PEFIU', stringsAsFactors = FALSE)
-state.data <- state.data[1:(dim(state.data)[1]-1),]
-state.data$Date <- as.Date(state.data$Date, format='%b %d')
-state.data[is.na(state.data)] <- 0
-georgia <- data.frame(date=state.data$Date, cases=state.data$GA)
-georgia <- subset(georgia, date >= start)
+# Read in data ------------------------------------------------------------
+
+today <- Sys.Date()
+start <- as.Date('12/01/2019',format='%m/%d/%Y')
+today.day <- today - start + 1
+data <- read.csv('china-province-data - wikipedia-cases.csv')
+data[,1] <- as.Date(as.character(data[,1]), format='%m-%d-%Y')
+names(data)[1] <- 'date'
+data.province <- data #head(data,-3)
+data.province[is.na(data.province)] <- 0
+data.province$total <- rowSums(data.province[,c(2:32)])
+data.province$day <- data.province$date - start + 1  # Day 1 is given by "start"
+data.province$cum.cases <- cumsum(data.province$total)
+
+model_data <- data.province[, c("date", "Hubei")]
+model_data$cumcases <- cumsum(model_data$Hubei)
 
 
 # Create "synlik" object --------------------------------------------------
 
-params <- list(beta0=0.6584, sigma=1/6.4, b=0.143, a0=1/1.5)
+params <- list(beta0=0.657, sigma=1/6.4, b=0.143, a0=0.0446, beta.factor = 1)
 
-init <-  list(S=10600000, E1=0, E2=0, E3=0, E4=0, E5=6, E6=0,
-              I1 = 40, I2= 0, I3=0, I4=0, Iu1=0, Iu2=0, Iu3=0, Iu4=0,
+init <-  list(S=59002000, E1=0, E2=0, E3=0, E4=0, E5=0, E6=0,
+              I1 = 1, I2= 0, I3=0, I4=0, Iu1=0, Iu2=0, Iu3=0, Iu4=0,
               H=0, Ru=0, C=0)
 
 nsims <- 2
 nstep <- NULL
-start <- as.Date("2020-03-01")
+start <- as.Date("2019-12-01")
 today <- Sys.Date()
 
 extraArgs <- list("init" = init, "nstep" = nstep, "start" = start, 
-                  "today" = today, "dt" = 0.05, "w" = 12, "z" = 12, "c" = 1, 
-                  "presymptomatic" = 1, "timesToObs" = TRUE)
-extraArgs$nObs <- nrow(georgia)
+                  "today" = today, "dt" = 0.05, "w" = 40, "z" = 45, "c" = 1, 
+                  "presymptomatic" = 0, "timesToObs" = TRUE, 
+                  "nObs" = nrow(model_data), "obsData" = model_data$cumcases,
+                  "obsDataDate" = model_data$date)
 
 covid_sl <- new("synlik",
                 simulator = mod_wrap,
                 param = log(unlist(params)),
                 extraArgs = extraArgs)
 
-covid_sl@data <- cumsum(georgia$cases)
-covid_sl@extraArgs$obsData <- cumsum(georgia$cases)
+covid_sl@data <- model_data$cumcases
 
 res <- simulate(covid_sl, nsim = 5)
-plot(georgia$date, cumsum(georgia$cases), 
+# matplot(t(res), typ= "l", log = "y", ylim = c(1, 800000))
+
+
+plot(model_data$date, model_data$cumcases, 
      type='h', lwd=5, lend='butt', xlab='', 
-     col = col.cases,
-     ylab='New case notifications', 
-     main='COVID-19 cases in Georgia')
+     col = col.cases, ylim = c(1, 800000),
+     ylab='Cumulative case notifications', 
+     main='COVID-19 cases in Hubei', log = "y")
 for(i in 1:nrow(res)) {
-  resDF <- data.frame(date = georgia$date,
+  resDF <- data.frame(date = model_data$date,
                       cases = res[i, ])
   lines(resDF$date, resDF$cases, col = col.cases.ci)
 }
@@ -75,11 +85,11 @@ for(i in 1:nrow(res)) {
 
 # Define prior distributions ----------------------------------------------
 
-covid_priors_sl <- function(input, ...){ sum( input ) +
+covid_priors_sl <- function(input, ...) { sum( input ) +
     dnorm (input[1], log(0.67), 1, log = TRUE) +
     dnorm (input[2], log(0.15), 1, log = TRUE) +
     dnorm (input[3], log(0.143), 1, log = TRUE) +
-    dnorm (input[4], log(0.67), 1, log = TRUE)}
+    dnorm (input[4], log(0.67), 1, log = TRUE) }
 
 
 # Define stats for synthetic likelihood -----------------------------------

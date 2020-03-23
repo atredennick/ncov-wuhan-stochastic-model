@@ -43,8 +43,10 @@ onestep <- function (x, params) {  #function to calculate one step of stochastic
     {
       gammai <- 4*gamma(z=z, b=b, a0=a0, t=as.numeric(t))  # multiplier 4 for pseudo stages
       sigmai <- 6*sigma  # multiplier 6 for pseudo stages
-      etat <- eta(t,w)     # case notification rate
-      betat <- beta(t,w)   # time dependent transmissibility, presymptomatic=1 causes this transmissibility to apply to late stage latent cases as well
+      etat <- eta(t)     # case notification rate
+      
+      ## ATT UPDATE HERE TO INCLUDE ALL ARGUMENTS
+      betat <- beta(t,w,beta0,beta.factor)   # time dependent transmissibility, presymptomatic=1 causes this transmissibility to apply to late stage latent cases as well
       
       rates <- as.numeric(c(betat*I.detected/N+betat*c*I.undetected/N+presymptomatic*betat*c*E6/N,                           # movements out of S
                             sigmai, sigmai, sigmai, sigmai, sigmai, sigmai,   # movements out of E
@@ -65,7 +67,7 @@ onestep <- function (x, params) {  #function to calculate one step of stochastic
       p[4,]  <- c(0, 0, 0, exp(-rates[4]*dt), 1-exp(-rates[4]*dt), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)    # Transitions out of E
       p[5,]  <- c(0, 0, 0, 0, exp(-rates[5]*dt), 1-exp(-rates[5]*dt), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)    # Transitions out of E
       p[6,]  <- c(0, 0, 0, 0, 0, exp(-rates[6]*dt), 1-exp(-rates[6]*dt), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)    # Transitions out of E
-      p[7,]  <- c(0, 0, 0, 0, 0, 0, exp(-rates[7]*dt), (1-exp(-rates[7]*dt))*q(w), 0, 0, 0, (1-exp(-rates[7]*dt))*(1-q(w)), 0, 0, 0, 0, 0, 0)    # Transitions out of E
+      p[7,]  <- c(0, 0, 0, 0, 0, 0, exp(-rates[7]*dt), (1-exp(-rates[7]*dt))*q(t,w), 0, 0, 0, (1-exp(-rates[7]*dt))*(1-q(t,w)), 0, 0, 0, 0, 0, 0)    # Transitions out of E
       
       p[8,]  <- c(0, 0, 0, 0, 0, 0, 0, exp(-rates[8]*dt), 1-exp(-rates[8]*dt), 0, 0, 0, 0, 0, 0, 0, 0, 0)    # Transitions out of I (detected)
       p[9,]  <- c(0, 0, 0, 0, 0, 0, 0, 0, exp(-rates[9]*dt), 1-exp(-rates[9]*dt), 0, 0, 0, 0, 0, 0, 0, 0)    # Transitions out of I
@@ -110,23 +112,24 @@ model <- function (x, params, nstep) {  #function to simulate stochastic SIR
   output                                    #return output
 }
 
-gamma <- function(z = 12, b=0.143, a0=1/1.5, t){
-  # piecewise function
-  # default parameters z = 12, b=1/7, a0=1/1.5
-  #    z: time at start of intervention (notionally March 12)
+## UPDATE WITH JOHN
+gamma <- function(z = 45, b=0.143, a0=0.0446, t){
+  # linear function
+  # default parameters z = 50, b=1/7, a0=0.3 from Paige Miller analysis; revised 2/1/20 based on updated analysis
+  #    z: time at start of intervention (notionally Jan 19, 50 days after notional start on Dec 1 and the date of expanded testing in Wuhan)
   #    b: intercept (positive)
-  #    a0: post intervention isolation ratae
+  #    a0: slope parameter (units of days, positive) -- original analysis had set to 0.03, but this doesn't seem fast enough
   #    t: time in the model
   
-  out <- ifelse(t<=z, b,  a0)
-  return(out)
+  gamma <- ifelse(t<=z, gamma <- b, gamma <- b + a0*(t-z))
+  return(gamma)
 }
 
-eta <- function(t, w=12) ifelse(t<=w,1/3,1/3)
+# eta <- function(t, w=12) ifelse(t<=w,1/3,1/3)
+eta <- function(t) ifelse(t<=55,1/(-0.47*t+27.2),1)  ## UPDATE WITH JOHN
+q <- function(t, w=50, q0=0.111, q1=0.98) ifelse(t<=w,q0,q1)  ## UPDATE WITH JOHN
 
-q <- function(t, w=12, q0=1, q1=1) ifelse(t<=w,q0,q1)
-
-beta <- function(t, w=12, beta0=0.6584, beta.factor=2) ifelse(t<=w,beta0,beta0/beta.factor)
+beta <- function(t, w=12, beta0=0.6584, beta.factor=1) ifelse(t<=w,beta0,beta0/beta.factor)
 
 evaluate.model <- function(params, init , nsims, nstep, start, today){
   
