@@ -13,7 +13,7 @@ mod_simulator <- function(params, init, nsims, nstep, start, today,
 
 mod_wrap <- function(param, nsim, extraArgs = extraArgs, ...) {
   param <- as.list(exp(param))
-  names(param) <- c( "beta0", "sigma", "b", "a0", "beta.factor")
+  names(param) <- extraArgs$paramNames
   
   # Set some extraArgs variables as objects or objects part of param
   # for passing to evaluate.model. This is done because synlik only
@@ -28,6 +28,9 @@ mod_wrap <- function(param, nsim, extraArgs = extraArgs, ...) {
   param$z <- extraArgs$z
   param$c <- extraArgs$c
   param$presymptomatic <- extraArgs$presymptomatic
+  param$sigma <- extraArgs$sigma
+  param$b <- extraArgs$b
+  param$a0 <- extraArgs$a0
   
   stopifnot( !is.null(nObs) )
   
@@ -45,10 +48,13 @@ mod_wrap <- function(param, nsim, extraArgs = extraArgs, ...) {
   # Save only the time steps with indexes in extraArgs$timesToSave
   report_times <- seq(from = 1, to = ncol(simul), by = 1/extraArgs$dt)
   if( extraArgs$timesToObs ){ 
-    first_obs <- which(seq(start, today + 28, by = 1) == head(extraArgs$obsDataDate, 1))
+    first_obs <- which(seq(start, today + 28, by = 1) == (head(extraArgs$obsDataDate, 1) - 1))
     last_obs <- which(seq(start, today + 28, by = 1) == tail(extraArgs$obsDataDate, 1))
-    return( simul[ , report_times[first_obs:last_obs], drop = FALSE] )
+    s1 <- simul[ , report_times[first_obs:last_obs], drop = FALSE]
+    s1 <- apply(s1, 1, diff)
+    # idx <- which(colSums(s1) != 0)
+    return( t(s1) )
   } else {
-    return( simul )
+    return( t(apply(simul, 1, diff)) )
   }
 }

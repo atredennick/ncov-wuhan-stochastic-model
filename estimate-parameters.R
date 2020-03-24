@@ -43,7 +43,7 @@ model_data$cumcases <- cumsum(model_data$Hubei)
 
 # Create "synlik" object --------------------------------------------------
 
-params <- list(beta0=0.657, sigma=1/6.4, b=0.143, a0=0.0446, beta.factor = 1)
+params <- list(beta0 = 0.657, beta.factor = 1)
 
 init <-  list(S=59002000, E1=0, E2=0, E3=0, E4=0, E5=0, E6=0,
               I1 = 1, I2= 0, I3=0, I4=0, Iu1=0, Iu2=0, Iu3=0, Iu4=0,
@@ -58,74 +58,112 @@ extraArgs <- list("init" = init, "nstep" = nstep, "start" = start,
                   "today" = today, "dt" = 0.05, "w" = 40, "z" = 45, "c" = 1, 
                   "presymptomatic" = 0, "timesToObs" = TRUE, 
                   "nObs" = nrow(model_data), "obsData" = model_data$cumcases,
-                  "obsDataDate" = model_data$date)
+                  "obsDataDate" = model_data$date, "sigma" = 1/6.4, 
+                  "b" = 0.143, "a0" = 0.0446, paramNames = names(params))
 
 covid_sl <- new("synlik",
                 simulator = mod_wrap,
                 param = log(unlist(params)),
                 extraArgs = extraArgs)
 
-covid_sl@data <- model_data$cumcases
+covid_sl@data <- model_data$Hubei
 
-res <- simulate(covid_sl, nsim = 5)
-# matplot(t(res), typ= "l", log = "y", ylim = c(1, 800000))
-
-
-plot(model_data$date, model_data$cumcases, 
-     type='h', lwd=5, lend='butt', xlab='', 
-     col = col.cases, ylim = c(1, 800000),
-     ylab='Cumulative case notifications', 
-     main='COVID-19 cases in Hubei', log = "y")
-for(i in 1:nrow(res)) {
-  resDF <- data.frame(date = model_data$date,
-                      cases = res[i, ])
-  lines(resDF$date, resDF$cases, col = col.cases.ci)
-}
+# res <- simulate(covid_sl, nsim = 5)
+# # matplot(t(res), typ= "l")
+# 
+# 
+# plot(model_data$date, model_data$Hubei, 
+#      type='h', lwd=5, lend='butt', xlab='', 
+#      col = col.cases,
+#      ylab='New case notifications', 
+#      main='COVID-19 cases in Hubei')
+# for(i in 1:nrow(res)) {
+#   resDF <- data.frame(date = model_data$date,
+#                       cases = res[i, ])
+#   lines(resDF$date, resDF$cases, col = col.cases.ci)
+# }
 
 
 # Define prior distributions ----------------------------------------------
 
+# covid_priors_sl <- function(input, ...) { sum( input ) +
+#     dnorm (input[1], log(0.67), 1, log = TRUE) +
+#     dnorm (input[2], log(0.15), 1, log = TRUE) +
+#     dnorm (input[3], log(0.143), 1, log = TRUE) +
+#     dnorm (input[4], log(0.67), 1, log = TRUE) }
+
 covid_priors_sl <- function(input, ...) { sum( input ) +
-    dnorm (input[1], log(0.67), 1, log = TRUE) +
-    dnorm (input[2], log(0.15), 1, log = TRUE) +
-    dnorm (input[3], log(0.143), 1, log = TRUE) +
-    dnorm (input[4], log(0.67), 1, log = TRUE) }
+    dnorm (input[1], log(0.67), 1, log = TRUE) +  # beta0 prior
+    dnorm (input[2], log(0.2), 0.2, log = TRUE) }  # beta reduction prior
 
 
 # Define stats for synthetic likelihood -----------------------------------
 
+# covid_stats <- function(x, extraArgs, ...) {
+#   obsData <- as.vector(extraArgs$obsData)
+#   stopifnot(length(obsData) != 0)
+#   if (!is.matrix(x))
+#     x <- matrix(x, 1, length(x))
+#   x <- t(x)
+#   X0 <- cbind(log(colMeans(x)+0.0001), log(colSums(x)+0.0001))
+#   X0
+# }
+
+
+
 covid_stats <- function(x, extraArgs, ...) {
-  obsData <- as.vector(extraArgs$obsData)
-  stopifnot(length(obsData) != 0)
-  if (!is.matrix(x)) 
-    x <- matrix(x, 1, length(x))
-  x <- t(x)
-  X0 <- cbind(log(colMeans(x)+0.0001), log(colSums(x)+0.0001))
-  X0
+  ## obsData is a vector of observed path
+  ## x is a M by n.t matrix of paths, each row of 'x' is a replicate
+  
+  obsData <- extraArgs$obsData
+  
+  stopifnot(is.vector(obsData), length(obsData) != 0)
+  if (!is.matrix(x)) x <- matrix(x, 1, length(x))
+  
+  tx <- t(x)
+  
+  X0 <- t(orderDist(tx, obsData, np = 3, diff = 1))
+  X0 <- cbind(X0, t(nlar(tx, lag = c(1, 1), power = c(1, 2))))
+  X0 <- cbind(X0, rowMeans(x))
+  X0 <- cbind(X0, t(slAcf(tx, max.lag = 5)))
+  
+  return(X0)
 }
 
 covid_sl@summaries <- covid_stats
 # checkNorm(covid_sl, nsim = 50)  # works
-
+# res_stats <- simulate(covid_sl, nsim = 15, stats = TRUE)
+# obs_stats <- covid_sl@summaries(x = covid_sl@data, extraArgs)
+# synlik:::.empDens(y = obs_stats, X = res_stats, tol = 1e-06, log = TRUE)
 
 # Run MCMC ----------------------------------------------------------------
 
-covMat <- diag(rep(0.2, length(params)))
+covMat <- diag(rep(0.05, length(params)))
 
-# slik(covid_sl, param  = unname(log(unlist(params))), nsim   = 10)  # works
+# slik(covid_sl, param  = unname(log(unlist(params))), nsim = 5)  # works
 # slice(object = covid_sl,
 #       ranges = list("beta0" = seq(-0.5, -0.3, by = 0.01)),
 #       param = log(unlist(params)),
-#       nsim = 10)  # works
+#       nsim = 50)  # works
 
-init_params <- c(beta0 = 0.3, sigma = 0.2, b = 0.15, a0 = 0.4)
-covid_mcmc <- smcmc(covid_sl, 
+init_params <- c(beta0 = 0.6, beta.factor = 1)
+num_cores <- parallel::detectCores() - 1
+cl <- parallel::makeCluster(num_cores)
+parallel::clusterExport(cl, ls())
+parallel::clusterEvalQ(cl, {
+  library(synlik)
+})
+covid_mcmc <- smcmc(covid_sl,
                   initPar = log(init_params),
-                  nsim = 100,
+                  nsim = 15,
                   niter = 50, 
                   burn = 0,
                   priorFun = covid_priors_sl, 
-                  propCov = covMat)
+                  propCov = covMat,
+                  multicore = TRUE, 
+                  ncores = num_cores, 
+                  cluster = cl)
+parallel::stopCluster(cl)
 
-plot(covid_mcmc)
+plot(covid_mcmc@chains[,1], type = "l")
 
