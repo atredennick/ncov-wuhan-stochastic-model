@@ -19,7 +19,7 @@ mod_wrap <- function(param, nsim, extraArgs = extraArgs, ...) {
   # for passing to evaluate.model. This is done because synlik only
   # wants parameters to be estimated in the param argument. (Well, there
   # are ways around that, but this is easier.)
-  nObs <- extraArgs$nObs
+  if(!is.null(extraArgs$nObs)) nObs <- extraArgs$nObs
   init <- extraArgs$init
   start <- extraArgs$start
   today <- extraArgs$today
@@ -31,8 +31,9 @@ mod_wrap <- function(param, nsim, extraArgs = extraArgs, ...) {
   param$sigma <- extraArgs$sigma
   param$b <- extraArgs$b
   param$a0 <- extraArgs$a0
+  nstep <- extraArgs$nstep
   
-  stopifnot( !is.null(nObs) )
+  # stopifnot( !is.null(nObs) )
   
   # Return simul, with nrow = nsims and ncol = nsteps
   simul <- t(
@@ -55,6 +56,6 @@ mod_wrap <- function(param, nsim, extraArgs = extraArgs, ...) {
     # idx <- which(colSums(s1) != 0)
     return( t(s1) )
   } else {
-    return( t(apply(simul, 1, diff)) )
+    return( t(apply(simul[ , report_times], 1, diff)) )
   }
 }
