@@ -68,7 +68,7 @@ covid_sl <- new("synlik",
 Then we simulate from the model to make sure it is working.
 
 ```{r sim-test}
-res <- simulate(covid_sl, nsim = 2, seed = 1234)
+res <- simulate(covid_sl, nsim = 20, seed = 1234)
 matplot(t(res), type = "l", col = col.cases.ci, lty = 1, 
         main = "Simulated trajectories of COVID-19",
         xlab = "Day", ylab = "Number of new cases")
@@ -153,6 +153,95 @@ And the statitics from the "data".
 covid_sl@summaries(x = covid_sl@data, extraArgs = covid_sl@extraArgs)
 ```
 
+We also want to make sure the summary statistics meet the assumption of normality.
+
+```{r checkNorm, echo=FALSE}
+checkNorm <- function (object, param = object@param, nsim = 1000, observed = NULL, 
+    cex.axis = 1, cex.lab = 1, ...) 
+{
+    oldPar <- par(no.readonly = TRUE)
+    if (is(object, "synlik")) {
+        S <- t(simulate(object, nsim, param, stats = TRUE, ...))
+        summaries <- object@summaries
+        if (!is.null(object@data)) {
+            s <- if (!is.null(summaries)) {
+                drop(summaries(x = object@data, extraArgs = object@extraArgs, 
+                  ...))
+            }
+            else {
+                drop(object@data)
+            }
+        }
+        else {
+            s <- NULL
+        }
+    }
+    else {
+        if (!is.numeric(object)) 
+            stop("object should be either of class \"synlik\", a numeric matrix or vector")
+        if (!is.matrix(object)) 
+            object <- matrix(object, length(object), 1)
+        S <- t(object)
+        s <- drop(observed)
+    }
+    p <- nrow(S)
+    n <- ncol(S)
+    if (n < 10 * p) 
+        warning("You don't really have enough repetitions (nsim) for this approach")
+    ps <- s
+    for (i in 1:nrow(S)) ps[i] <- sum(S[i, ] < s[i])/ncol(S)
+    um <- robCov(S)
+    ms <- as.numeric(um$mY)
+    S <- S - ms
+    z <- colSums(S * (t(um$E) %*% um$E %*% S))
+    q <- log(qchisq((1:n - 0.5)/n, df = p))
+    z <- log(sort(z))
+    par(mfrow = c(1, 3))
+    plot(q, z, type = "l", col = "grey", xlab = "log theoretical quantiles", 
+        ylab = "log observed quantiles", cex.axis = cex.axis, 
+        cex.lab = cex.lab)
+    points(q, z, pch = ".")
+    abline(0, 1, col = 2)
+    cat("\nproportion |log(z)-log(q)|>.25 = ", sum(abs(z - 
+        q) > 0.25)/n, "\n")
+    if (!is.null(s)) {
+        z <- um$E %*% (s - ms)
+        q <- sum(z^2)
+        abline(h = log(q), lty = 2)
+    }
+    for (i in 1:nrow(S)) S[i, ] <- S[i, ]/um$sd[i]
+    n <- ncol(S)
+    z <- qnorm((1:n - 0.5)/n)
+    rz <- range(z)
+    rz <- c(rz[1] - 2, rz[2] + 2)
+    plot(z, sort(S[1, ]), type = "l", col = "grey", 
+        ylim = rz, xlab = "N(0,1) quantiles", ylab = "marginal quantiles", 
+        cex.axis = cex.axis, 
+        cex.lab = cex.lab)
+    points(z, sort(S[1, ]), pch = ".")
+    if (nrow(S) > 1) {
+        for (i in 2:nrow(S)) {
+            lines(z, sort(S[i, ]), col = "grey")
+            points(z, sort(S[i, ]), pch = ".")
+        }
+    }
+    abline(0, 1, col = 2)
+    if (!is.null(s)) {
+        z <- um$E %*% (s - ms)
+        qqnorm(z, cex.axis = cex.axis, cex.lab = cex.lab, main = "")
+        qqline(z, col = 2)
+    }
+    par(oldPar)
+    # return(ps)
+}
+```
+
+
+```{r normality, fig.height=2.5}
+test_params <- c(beta0 = 0.43, beta.factor = 1) 
+checkNorm(covid_sl, param = log(test_params), nsim = 100)
+```
+
 ## Model fitting
 
 We are now ready to use MCMC to estimate unknown parameters.
@@ -161,7 +250,7 @@ For the preliminary tests, we will try to fit two parameters: $\beta_0$ and $\xi
 It is useful to make sure the likelihood can be evaluated before running MCMC.
 ```{r lik-test}
 test_params <- c(beta0 = 0.43, beta.factor = 1) 
-slik(covid_sl, param  = unname(log(test_params)), nsim = 15)
+slik(covid_sl, param  = unname(log(test_params)), nsim = 50)
 ```
 
 We want to work with informative priors, so we define those for ```synlik```.
@@ -194,9 +283,9 @@ parallel::clusterEvalQ(cl, {
 # Run the MCMC
 covid_mcmc <- smcmc(covid_sl,
                   initPar = log(init_params),
-                  nsim = 15,
-                  niter = 5, 
-                  burn = 0,
+                  nsim = 50,
+                  niter = 50, 
+                  burn = 10,
                   priorFun = covid_priors_sl, 
                   propCov = covMat,
                   multicore = TRUE, 
