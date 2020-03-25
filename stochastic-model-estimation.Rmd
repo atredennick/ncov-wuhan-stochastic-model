@@ -11,7 +11,7 @@ output:
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE, cache=TRUE, warning = FALSE, message = FALSE)
+knitr::opts_chunk$set(echo = TRUE, cache=FALSE, warning = FALSE, message = FALSE)
 ```
 
 ## Introduction
@@ -42,7 +42,7 @@ source("style-definitions.R")  # colors
 # Create "synlik" object 
 
 # Parameters to estimate
-params <- list(beta0 = 0.657, beta.factor = 1)
+params <- list(beta0 = 0.657, beta.factor = 1, sigma = 1/6.4)
 
 # Initial conditions, specific to Hubei
 init <- list(S=59002000, E1=0, E2=0, E3=0, E4=0, E5=0, E6=0,
@@ -56,7 +56,7 @@ today <- Sys.Date()
 # Extra arguments needed for the stochastic model, specific to Hubei
 extraArgs <- list("init" = init, "nstep" = NULL, "start" = start, 
                   "today" = today, "dt" = 0.05, "w" = 40, "z" = 45, "c" = 1, 
-                  "presymptomatic" = 0, "timesToObs" = FALSE, "sigma" = 1/6.4, 
+                  "presymptomatic" = 0, "timesToObs" = FALSE, 
                   "b" = 0.143, "a0" = 0.0446, "paramNames" = names(params), "nObs" = NULL)
 
 covid_sl <- new("synlik",
@@ -82,21 +82,39 @@ covid_sl@extraArgs$obsData <- res[1, ]
 covid_sl@extraArgs$nObs <- length(res[1, ])
 plot(covid_sl@data, type='b',  xlab='Day', col = col.cases,
      ylab='Number of new cases', main='Simulated COVID-19 cases in Hubei')
-abline(v = c(42, 69))
 ```
 
 ## Summary statistics for the synthetic likelihood
 
 Fitting models using the synthetic likelihood (Wood 2010) requires calculating a vector of summary statistics ($S$) that summarize the observed time series and simulated trajectories.
 The summary statistics ($S_{\text{sim}}$) from simulated time series are compared to the summary statistics of the observed time series ($S_{\text{obs}}$) to evaluate the (synthetic) likelihood.
-For our particular problem, I used the following summary statistics based on phases of the epidemic delineated in the figure above by the solid vertical lines:
+For our particular problem, I used the following summary statistics based on phases of the epidemic that are defined by case numbers.
+Specifically, we used a five day moving average of the differences of observed new cases to define the following phases: day at which the the moving average of differences exceeds 1 ($d_0$) and the day at which the moving average of differences drops below -10 ($d_1$).
+The plot below shows the time series of the five-day moving average of the differences of new cases, along with the calculated break points defined above
 
-1. Maximum incidence before day 42 (stuttering chain of tranmission)
-2. Maximum incidence between day 42 and day 69 (exponential phase)
-3. Maximum incidence after day 69 (decling phase)
-4. Cumulative incidence before day 42
-5. Cumulative incidence between day 42 and day 69
-6. Cumulative incidence after day 69
+```{r plot-ma}
+ma <- function(x, n = 5){stats::filter(x, rep(1 / n, n), sides = 2)}
+stat_times <- ma(diff(covid_sl@data), n = 5)
+d0 <- min(which(stat_times > 1))
+d1 <- min(which(stat_times < -10))
+par(mfrow = c(1,2))
+plot(stat_times, xlab = "Day", ylab = "Moving average of differences", 
+     type = "b", cex = 0.5)
+abline(h = 0, col = "grey", lty = 2)
+abline(v = c(d0, d1), col = "red")
+plot(covid_sl@data, type='b',  xlab='Day', col = col.cases,
+     ylab='Number of new cases', cex = 0.5)
+abline(v = c(d0, d1), col = "red")
+```
+
+The summary statistics are as follows:
+
+1. Maximum incidence before day $d_0$ (stuttering chain of tranmission)
+2. Maximum incidence between day $d_0$ and day $d_1$ (exponential phase)
+3. Maximum incidence after day $d_1$ (decling phase)
+4. Cumulative incidence before day $d_0$
+5. Cumulative incidence between day $d_0$ and day $d_1$
+6. Cumulative incidence after day $d_1$
 7. Maximum incidence along the whole trajectory
 8. Day of epidemic peak (timing of max incidence)
 9. Final size of epidemic (total incidence)
@@ -108,26 +126,41 @@ covid_stats <- function(x, extraArgs, ...) {
   ## obsData is a vector of observed path
   ## x is a M by n.t matrix of paths, each row of 'x' is a replicate
   
+  ma <- function(x, n = 5){stats::filter(x, rep(1 / n, n), sides = 2)}
+  stat_times <- ma(diff(extraArgs$obsData), n = 5)
+  d0 <- min(which(stat_times > 1))
+  d1 <- min(which(stat_times < -10))
+  
   obsData <- extraArgs$obsData
   
   stopifnot(is.vector(obsData), length(obsData) != 0)
   if (!is.matrix(x)) x <- matrix(x, 1, length(x))
   
+  x <- log(x + 10)  # log transform
+  
   # Max incidence
-  X0 <- (apply(x, 1, function(x) max(x[1:41])))
-  X0 <- cbind(X0, (apply(x, 1, function(x) max(x[42:69]))))
-  X0 <- cbind(X0, (apply(x, 1, function(x) max(x[70:length(x)]))))
+  X0 <- (apply(x, 1, function(x) max(x[1:(d0-1)])))
+  X0 <- cbind(X0, (apply(x, 1, function(x) max(x[d0:d1]))))
+  X0 <- cbind(X0, (apply(x, 1, function(x) max(x[(d1+1):length(x)]))))
   
   # Cumulative incidence
-  X0 <- cbind(X0, (apply(x, 1, function(x) sum(x[1:41]))))
-  X0 <- cbind(X0, (apply(x, 1, function(x) sum(x[42:69]))))
-  X0 <- cbind(X0, (apply(x, 1, function(x) sum(x[70:length(x)]))))
+  X0 <- cbind(X0, (apply(x, 1, function(x) sum(x[1:(d0-1)]))))
+  X0 <- cbind(X0, (apply(x, 1, function(x) sum(x[d0:d1]))))
+  X0 <- cbind(X0, (apply(x, 1, function(x) sum(x[(d1+1):length(x)]))))
   
   # Max along whole trajectory
   X0 <- cbind(X0, apply(x, 1, max))
   
   # Day of max
   X0 <- cbind(X0, apply(x, 1, function(x) which.max(x)))
+  
+  # Exponential increase and decline
+  X0 <- cbind(X0, apply(x, 1, max) / (apply(x, 1, function(x) which.max(x)) - d0))
+  
+  # Linear regression coefs
+  X0 <- cbind(X0, apply(x, 1, function(x) as.numeric(coef(lm(x[1:(d0-1)] ~ seq_along(x[1:(d0-1)])))[2])))
+  X0 <- cbind(X0, apply(x, 1, function(x) as.numeric(coef(lm(x[d0:d1] ~ seq_along(x[d0:d1])))[2])))
+  X0 <- cbind(X0, apply(x, 1, function(x) as.numeric(coef(lm(x[(d1+1):length(x)] ~ seq_along(x[(d1+1):length(x)])))[2])))
   
   # Final epidemic size
   X0 <- cbind(X0, apply(x, 1, sum))
@@ -144,10 +177,11 @@ covid_sl@summaries <- covid_stats
 Here are example statistics from a few simulations.
 
 ```{r ex-stats}
-simulate(covid_sl, nsim = 5, stats = TRUE)
+test <- simulate(covid_sl, nsim = 5, stats = TRUE)
+print(test)
 ```
 
-And the statitics from the "data".
+And the statistics from the "data".
 
 ```{r obs-stats}
 covid_sl@summaries(x = covid_sl@data, extraArgs = covid_sl@extraArgs)
@@ -202,8 +236,8 @@ checkNorm <- function (object, param = object@param, nsim = 1000, observed = NUL
         cex.lab = cex.lab)
     points(q, z, pch = ".")
     abline(0, 1, col = 2)
-    cat("\nproportion |log(z)-log(q)|>.25 = ", sum(abs(z - 
-        q) > 0.25)/n, "\n")
+    # cat("\nproportion |log(z)-log(q)|>.25 = ", sum(abs(z - 
+    #     q) > 0.25)/n, "\n")
     if (!is.null(s)) {
         z <- um$E %*% (s - ms)
         q <- sum(z^2)
@@ -238,8 +272,8 @@ checkNorm <- function (object, param = object@param, nsim = 1000, observed = NUL
 
 
 ```{r normality, fig.height=2.5}
-test_params <- c(beta0 = 0.43, beta.factor = 1) 
-checkNorm(covid_sl, param = log(test_params), nsim = 100)
+test_params <- c(beta0 = 0.657, beta.factor = 1, sigma = 1/6.4) 
+checkNorm(covid_sl, param = log(test_params), nsim = 50)
 ```
 
 ## Model fitting
@@ -249,8 +283,8 @@ For the preliminary tests, we will try to fit two parameters: $\beta_0$ and $\xi
 
 It is useful to make sure the likelihood can be evaluated before running MCMC.
 ```{r lik-test}
-test_params <- c(beta0 = 0.43, beta.factor = 1) 
-slik(covid_sl, param  = unname(log(test_params)), nsim = 50)
+test_params <- c(beta0 = 0.67, beta.factor = 1, sigma = 1/6.4) 
+slik(covid_sl, param  = unname(log(test_params)), nsim = 40)
 ```
 
 We want to work with informative priors, so we define those for ```synlik```.
@@ -260,17 +294,18 @@ Note that parameters are specified on the log scale for estimation and transform
 # This follows standard synlik notation
 covid_priors_sl <- function(input, ...) { sum( input ) +
     dnorm (input[1], log(0.67), 1, log = TRUE) +  # beta0 prior
-    dnorm (input[2], log(0.2), 0.2, log = TRUE) }  # beta reduction prior
+    dnorm (input[2], log(0.2), 0.2, log = TRUE) +
+    dnorm (input[2], log(1/6.4), 0.25, log = TRUE)}  # beta reduction prior
 ```
 
 Finally, we can run the ```synlik::smcmc``` routine.
-```{r smcmc}
+```{r smcmc, fig.height=2.5}
 
 # Define perturbation covariance matrix for MCMC proposals
 covMat <- diag(rep(0.1, length(params)))
 
 # Set the initial parameters, arithmetic scale
-init_params <- c(beta0 = 0.5, beta.factor = 1)
+init_params <- c(beta0 = 0.2, beta.factor = 1.5, sigma = 0.25)
 
 # Set up a cluster for parallel simulations within MCMC steps
 num_cores <- parallel::detectCores() - 1
@@ -283,9 +318,9 @@ parallel::clusterEvalQ(cl, {
 # Run the MCMC
 covid_mcmc <- smcmc(covid_sl,
                   initPar = log(init_params),
-                  nsim = 50,
-                  niter = 50, 
-                  burn = 10,
+                  nsim = 30,
+                  niter = 5, 
+                  burn = 0,
                   priorFun = covid_priors_sl, 
                   propCov = covMat,
                   multicore = TRUE, 
@@ -296,10 +331,12 @@ covid_mcmc <- smcmc(covid_sl,
 parallel::stopCluster(cl)
 
 # Plot the chains
-par(mfrow = c(1, 2))
+par(mfrow = c(1, 3))
 plot(covid_mcmc@chains[,1], type = "l", xlab = "Iteration", 
      ylab = expression(log(beta)), las = 1)
 plot(covid_mcmc@chains[,2], type = "l", xlab = "Iteration",
+     ylab = expression(log(xi)), las = 1)
+plot(covid_mcmc@chains[,3], type = "l", xlab = "Iteration",
      ylab = expression(log(xi)), las = 1)
 
 ```

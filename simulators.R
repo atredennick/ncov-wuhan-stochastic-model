@@ -28,7 +28,7 @@ mod_wrap <- function(param, nsim, extraArgs = extraArgs, ...) {
   param$z <- extraArgs$z
   param$c <- extraArgs$c
   param$presymptomatic <- extraArgs$presymptomatic
-  param$sigma <- extraArgs$sigma
+  if(!("sigma" %in% extraArgs$paramNames)) param$sigma <- extraArgs$sigma
   param$b <- extraArgs$b
   param$a0 <- extraArgs$a0
   nstep <- extraArgs$nstep
