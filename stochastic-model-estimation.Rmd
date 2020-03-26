@@ -294,15 +294,15 @@ Note that parameters are specified on the log scale for estimation and transform
 # This follows standard synlik notation
 covid_priors_sl <- function(input, ...) { sum( input ) +
     dnorm (input[1], log(0.67), 1, log = TRUE) +  # beta0 prior
-    dnorm (input[2], log(0.2), 0.2, log = TRUE) +
-    dnorm (input[2], log(1/6.4), 0.25, log = TRUE)}  # beta reduction prior
+    dnorm (input[2], log(0.2), 1, log = TRUE) +
+    dnorm (input[3], log(1/6.4), 1, log = TRUE)}  # beta reduction prior
 ```
 
 Finally, we can run the ```synlik::smcmc``` routine.
 ```{r smcmc, fig.height=2.5}
 
 # Define perturbation covariance matrix for MCMC proposals
-covMat <- diag(rep(0.1, length(params)))
+covMat <- diag(rep(0.5, length(params)))^2
 
 # Set the initial parameters, arithmetic scale
 init_params <- c(beta0 = 0.2, beta.factor = 1.5, sigma = 0.25)
@@ -319,13 +319,14 @@ parallel::clusterEvalQ(cl, {
 covid_mcmc <- smcmc(covid_sl,
                   initPar = log(init_params),
                   nsim = 30,
-                  niter = 5, 
+                  niter = 20, 
                   burn = 0,
                   priorFun = covid_priors_sl, 
                   propCov = covMat,
                   multicore = TRUE, 
                   ncores = num_cores, 
-                  cluster = cl)
+                  cluster = cl,
+                  targetRate = 0.33)
 
 # Stop the cluster
 parallel::stopCluster(cl)
@@ -337,6 +338,6 @@ plot(covid_mcmc@chains[,1], type = "l", xlab = "Iteration",
 plot(covid_mcmc@chains[,2], type = "l", xlab = "Iteration",
      ylab = expression(log(xi)), las = 1)
 plot(covid_mcmc@chains[,3], type = "l", xlab = "Iteration",
-     ylab = expression(log(xi)), las = 1)
+     ylab = expression(log(sigma)), las = 1)
 
 ```
