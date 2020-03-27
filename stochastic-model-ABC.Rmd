@@ -55,8 +55,7 @@ init <- list(S=59002000, E1=0, E2=0, E3=0, E4=0, E5=0, E6=0,
 extraArgs$init <- init
 
 # Simulate from the model
-set.seed(18276)
-res <- mod_wrap(param = log(unlist(theta)), nsim = 10, extraArgs = extraArgs)
+res <- mod_wrap(param = log(unlist(theta)), nsim = 2, extraArgs = extraArgs)
 
 matplot(t(res), type = "l", col = col.cases.ci, lty = 1, 
         main = "Simulated trajectories of COVID-19",
@@ -186,7 +185,7 @@ d <- function(xsim, xobs) {
 
 d(summaries[2,], obs_summaries)
 
-dsims <- 200
+dsims <- 2
 dist <- numeric(dsims)
 for(i in 1:dsims) {
   res <- mod_wrap(param = log(unlist(theta)), nsim = 1, extraArgs = extraArgs)
@@ -201,35 +200,51 @@ abline(v = median(dist), col = "red")
 
 ## ABC Algorithm
 ```{r abc}
+get_prior_d <- function(theta, theta_prime) {
+  d_theta <- dnorm(theta[1], log(0.657), 0.5) +
+             dnorm(theta[2], log(1), 0.5) +
+             dnorm(theta[3], log(1/6,4), 0.5) +
+             dunif(theta[4], -5, 5)
+  
+  d_theta_prime <- dnorm(theta_prime[1], log(0.657), 0.5) +
+                   dnorm(theta_prime[2], log(1), 0.5) +
+                   dnorm(theta_prime[3], log(1/6,4), 0.5) +
+                   dunif(theta_prime[4], -5, 5)
+  return(min(1, exp(d_theta_prime - d_theta)))
+}
 
-run_abc <- function(nsamp, epsilon, f_stats, f_distance, f_model, 
+
+run_abc <- function(nburn, nsamp, epsilon, f_stats, f_distance, f_model, 
                     init_theta, obs_data, ...) {
   results <- matrix(nrow = nsamp, ncol = length(init_theta))
   i <- 0
   theta <- init_theta
-  while(i < nsamp) {
-    theta_prime <- rnorm(length(theta), theta, sd = c(0.05, 0.05, 0.05, 0.05))
+  while(i < (nburn+nsamp)) {
+    theta_prime <- rnorm(length(theta), theta, sd = c(0.08, 0.08, 0.08, 0.08))
+    p <- f_prior(as.numeric(theta), theta_prime)
+    if(rbinom(1, 1, p) == 1) {
+      m <- f_model(param = theta_prime, nsim = 1, extraArgs = extraArgs)
+      mS <- f_stats(x = m, extraArgs = extraArgs)
+      mO <- f_stats(x = obs_data, extraArgs = extraArgs)
+      dtest <- f_distance(mS, mO)
+      if(dtest < epsilon) {
+        theta <- theta_prime
+      }
+    }
 #     propsal = c
 #     accept with p exp(prior(propsal) – prior(current))
 #     if accept do ABC step
-    m <- f_model(param = theta_prime, nsim = 1, extraArgs = extraArgs)
-    mS <- f_stats(x = m, extraArgs = extraArgs)
-    mO <- f_stats(x = obs_data, extraArgs = extraArgs)
-    dtest <- f_distance(mS, mO)
-    if(dtest < epsilon) {
-      theta <- theta_prime
-    }
     i <- i + 1
-    results[i, ] <- theta
+    if(i > nburn) results[(i - nburn), ] <- theta
   }
   return(results)
 }
 ```
 
 ```{r test}
-init_theta <- log(c(beta0 = 0.5, beta.factor = 1, sigma = 1/6.4, I0 = 1))
-out_mcmc <- run_abc(nsamp = 5000, epsilon = 10, f_stats = covid_stats, 
-                    f_distance = d, f_model = mod_wrap, 
+init_theta <- log(c(beta0 = 0.5, beta.factor = 2, sigma = 0.2, I0 = 5))
+out_mcmc <- run_abc(nburn = 100, nsamp = 500, epsilon = 10, f_stats = covid_stats, 
+                    f_distance = d, f_model = mod_wrap, f_prior = get_prior_d,
                     init_theta = init_theta, obs_data = obs_data)
 
 # Plot the chains

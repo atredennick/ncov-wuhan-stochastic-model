@@ -43,6 +43,7 @@ onestep <- function (x, params) {  #function to calculate one step of stochastic
     {
       gammai <- 4*gamma(z=z, b=b, a0=a0, t=as.numeric(t))  # multiplier 4 for pseudo stages
       sigmai <- 6*sigma  # multiplier 6 for pseudo stages
+      b <- 4*b
       etat <- eta(t)     # case notification rate
       
       ## ATT UPDATE HERE TO INCLUDE ALL ARGUMENTS
