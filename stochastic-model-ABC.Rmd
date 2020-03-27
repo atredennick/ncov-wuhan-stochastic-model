@@ -1,0 +1,252 @@
+---
+title: "Estimation scheme for fitting the stochastic model for the transmission of 2019-nCov in Hubei"
+author: "Andrew Tredennick & John Drake"
+date: "`r format(Sys.time(), '%B %d, %Y')`"
+header-includes:
+  - \usepackage{amsmath}
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, cache=FALSE, warning = FALSE, message = FALSE)
+```
+
+## Introduction
+
+This document describes a proposed estimation scheme for fitting the stochastic model (described elsewhere) of COVID-19 transmission to data.
+We plan to use Approximate Bayesian Computation to estimate unknown parameters.
+The posterior distribution of parameters will be explored using MCMC.
+While the end goal is estimate parameters given real data, we start by using the model itself to simulate a trajectory of disease transmission and tuning the model fitting process to ensure we can recover known parameters.
+
+
+## Simulated data
+
+Here we simulate data from the stochastic model using the ```simulators.R``` functions.
+The ```simulators.R``` functions are wrappers around the core model functions written by Drake and Rohani.
+
+
+```{r create-sims}
+# First source the necessary functions
+source("stochastic-model.R")  # the stochastic disease transmission model
+source("simulators.R")  # simulator wrappers
+source("style-definitions.R")  # colors
+
+# Time spans for simulation
+start <- as.Date("2019-12-01")
+today <- Sys.Date()
+
+# Unknown parameters
+theta <- list(beta0 = 0.657, beta.factor = 1, sigma = 1/6.4, I0 = 1)
+
+# Known parameters
+extraArgs <- list(nstep = NULL, start = start, 
+                  today = today, dt = 0.05, w = 40, z = 45, c = 1, 
+                  presymptomatic = 0, timesToObs = FALSE, 
+                  b = 0.143, a0 = 0.0446, paramNames = names(theta), 
+                  nObs = NULL, obsDataDate = NULL)
+
+# Initial conditions
+init <- list(S=59002000, E1=0, E2=0, E3=0, E4=0, E5=0, E6=0,
+             I1 = NA, I2= 0, I3=0, I4=0, Iu1=0, Iu2=0, Iu3=0, Iu4=0,
+             H=0, Ru=0, C=0)
+extraArgs$init <- init
+
+# Simulate from the model
+set.seed(18276)
+res <- mod_wrap(param = log(unlist(theta)), nsim = 10, extraArgs = extraArgs)
+
+matplot(t(res), type = "l", col = col.cases.ci, lty = 1, 
+        main = "Simulated trajectories of COVID-19",
+        xlab = "Day", ylab = "Number of new cases")
+```
+
+We can save one simulated trajectory as "data" for testing of the estimation scheme.
+
+```{r sim-data}
+obs_data <- mod_wrap(param = log(unlist(theta)), nsim = 1, extraArgs = extraArgs)
+extraArgs$obsData <- obs_data
+extraArgs$nObs <- length(obs_data)
+plot(obs_data, type='b',  xlab='Day', col = col.cases,
+     ylab='Number of new cases', main='Simulated COVID-19 cases in Hubei')
+```
+
+## Summary statistics for the ABC
+
+Fitting models using ABC requires calculating a vector of summary statistics ($S$) that summarize the observed time series and simulated trajectories.
+The summary statistics ($S_{\text{sim}}$) from simulated time series are compared to the summary statistics of the observed time series ($S_{\text{obs}}$) using a distance function $d$.
+To begin with, I used a simple $d$ function that calculates the mean absolute diference across all $N$ summary statistics: $\sum^{N}_{i=1} |S_{i,\text{obs}} - S_{i,\text{sim}}| / N$.
+
+For our particular problem, I used the following summary statistics based on phases of the epidemic that are defined by case numbers.
+Specifically, we used a five day moving average of the differences of log observed new cases (plus 10) to define the following phases: day at which the the moving average of log differences exceeds 0.1 ($d_0$) and the day at which the moving average of log differences drops below -0.01 ($d_1$).
+The plot below shows the time series of the five-day moving average of the differences of new cases, along with the calculated break points defined above
+
+```{r plot-ma}
+ma <- function(x, n = 5){stats::filter(x, rep(1 / n, n), sides = 2)}
+stat_times <- ma(diff(log(obs_data+10)), n = 5)
+d0 <- min(which(stat_times > 0.1))
+d1 <- d0 + min(which(stat_times[d0:length(stat_times)] < -0.01))
+par(mfrow = c(1,2))
+plot(stat_times, xlab = "Day", ylab = "Moving average of differences", 
+     type = "b", cex = 0.5)
+abline(h = 0, col = "grey", lty = 2)
+abline(v = c(d0, d1), col = "red")
+plot(obs_data, type='b',  xlab='Day', col = col.cases,
+     ylab='Number of new cases', cex = 0.5)
+abline(v = c(d0, d1), col = "red")
+```
+
+The summary statistics are as follows:
+
+1. Maximum incidence before day $d_0$ (stuttering chain of tranmission)
+2. Maximum incidence between day $d_0$ and day $d_1$ (exponential phase)
+3. Maximum incidence after day $d_1$ (decling phase)
+4. Cumulative incidence before day $d_0$
+5. Cumulative incidence between day $d_0$ and day $d_1$
+6. Cumulative incidence after day $d_1$
+7. Maximum incidence along the whole trajectory
+8. Day of epidemic peak (timing of max incidence)
+9. Final size of epidemic (total incidence)
+
+Now we code up calculations for these summary statistics for ```synlik```.
+
+```{r summary-stats}
+covid_stats <- function(x, extraArgs, ...) {
+  ## obsData is a vector of observed path
+  ## x is a M by n.t matrix of paths, each row of 'x' is a replicate
+  
+  ma <- function(x, n = 5){stats::filter(x, rep(1 / n, n), sides = 2)}
+  stat_times <- ma(diff(log(extraArgs$obsData+10)), n = 5)
+  d0 <- min(which(stat_times > 0.1))
+  d1 <- d0 + min(which(stat_times[d0:length(stat_times)] < -0.01))
+  
+  obsData <- extraArgs$obsData
+  
+  stopifnot(is.vector(obsData), length(obsData) != 0)
+  if (!is.matrix(x)) x <- matrix(x, 1, length(x))
+  
+  x <- log(x + 10)  # log transform
+  
+  # Max incidence
+  X0 <- (apply(x, 1, function(x) max(x[1:(d0-1)])))
+  X0 <- cbind(X0, (apply(x, 1, function(x) max(x[d0:d1]))))
+  X0 <- cbind(X0, (apply(x, 1, function(x) max(x[(d1+1):length(x)]))))
+  
+  # Cumulative incidence
+  X0 <- cbind(X0, (apply(x, 1, function(x) sum(x[1:(d0-1)]))))
+  X0 <- cbind(X0, (apply(x, 1, function(x) sum(x[d0:d1]))))
+  X0 <- cbind(X0, (apply(x, 1, function(x) sum(x[(d1+1):length(x)]))))
+  
+  # Max along whole trajectory
+  X0 <- cbind(X0, apply(x, 1, max))
+  
+  # Day of max
+  X0 <- cbind(X0, apply(x, 1, function(x) which.max(x)))
+  
+  # Exponential increase and decline
+  X0 <- cbind(X0, apply(x, 1, max) / (apply(x, 1, function(x) which.max(x)) - d0))
+  
+  # Linear regression coefs
+  X0 <- cbind(X0, apply(x, 1, function(x) as.numeric(coef(lm(x[1:(d0-1)] ~ seq_along(x[1:(d0-1)])))[2])))
+  X0 <- cbind(X0, apply(x, 1, function(x) as.numeric(coef(lm(x[d0:d1] ~ seq_along(x[d0:d1])))[2])))
+  X0 <- cbind(X0, apply(x, 1, function(x) as.numeric(coef(lm(x[(d1+1):length(x)] ~ seq_along(x[(d1+1):length(x)])))[2])))
+  
+  # Final epidemic size
+  X0 <- cbind(X0, apply(x, 1, sum))
+  return(X0)
+}
+```
+
+
+Here are example statistics from a few simulations.
+
+```{r ex-stats}
+summaries <- covid_stats(x = res, extraArgs = extraArgs)
+print(summaries)
+```
+
+And the statistics from the "data".
+
+```{r obs-stats}
+obs_summaries <- covid_stats(x = obs_data, extraArgs = extraArgs)
+print(obs_summaries)
+```
+
+Last, we define a distance function $d$.
+It is important to know how $d$ might vary due to model stochasticity alone because we have to set a threshold value ($\varepsilon$) that $d$ must fall below for acceptance of a parameter vector in the ABC-MCMC algorithm.
+So, I simulated 200 trajectories from the same parameter values and calculated the distances of the summary statistics.
+The resulting histogram indicates an initial $\varepsilon \approx 10$.
+
+```{r dist}
+d <- function(xsim, xobs) {
+  mean(abs(xobs - xsim))
+}
+
+d(summaries[2,], obs_summaries)
+
+dsims <- 200
+dist <- numeric(dsims)
+for(i in 1:dsims) {
+  res <- mod_wrap(param = log(unlist(theta)), nsim = 1, extraArgs = extraArgs)
+  summaries <- covid_stats(x = res, extraArgs = extraArgs)
+  dist[i] <- d(summaries, obs_summaries)
+}
+hist(dist, main = "Distribution of statistic distances at known parameters",
+     xlab = "d")
+abline(v = median(dist), col = "red")
+
+```
+
+## ABC Algorithm
+```{r abc}
+
+run_abc <- function(nsamp, epsilon, f_stats, f_distance, f_model, 
+                    init_theta, obs_data, ...) {
+  results <- matrix(nrow = nsamp, ncol = length(init_theta))
+  i <- 0
+  theta <- init_theta
+  while(i < nsamp) {
+    theta_prime <- rnorm(length(theta), theta, sd = c(0.05, 0.05, 0.05, 0.05))
+#     propsal = c
+#     accept with p exp(prior(propsal) – prior(current))
+#     if accept do ABC step
+    m <- f_model(param = theta_prime, nsim = 1, extraArgs = extraArgs)
+    mS <- f_stats(x = m, extraArgs = extraArgs)
+    mO <- f_stats(x = obs_data, extraArgs = extraArgs)
+    dtest <- f_distance(mS, mO)
+    if(dtest < epsilon) {
+      theta <- theta_prime
+    }
+    i <- i + 1
+    results[i, ] <- theta
+  }
+  return(results)
+}
+```
+
+```{r test}
+init_theta <- log(c(beta0 = 0.5, beta.factor = 1, sigma = 1/6.4, I0 = 1))
+out_mcmc <- run_abc(nsamp = 5000, epsilon = 10, f_stats = covid_stats, 
+                    f_distance = d, f_model = mod_wrap, 
+                    init_theta = init_theta, obs_data = obs_data)
+
+# Plot the chains
+par(mfrow = c(2, 2))
+plot(out_mcmc[,1], type = "l", xlab = "Iteration",
+     ylab = expression(log(beta)), las = 1)
+abline(h = log(as.numeric(theta[1])), col = "red")
+plot(out_mcmc[,2], type = "l", xlab = "Iteration",
+     ylab = expression(log(xi)), las = 1)
+abline(h = log(as.numeric(theta[2])), col = "red")
+plot(out_mcmc[,3], type = "l", xlab = "Iteration",
+     ylab = expression(log(sigma)), las = 1)
+abline(h = log(as.numeric(theta[3])), col = "red")
+plot(out_mcmc[,4], type = "l", xlab = "Iteration",
+     ylab = expression(log(I[0])), las = 1)
+abline(h = log(as.numeric(theta[4])), col = "red")
+```
+
+
+

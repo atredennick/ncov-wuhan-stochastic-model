@@ -21,6 +21,8 @@ mod_wrap <- function(param, nsim, extraArgs = extraArgs, ...) {
   # are ways around that, but this is easier.)
   if(!is.null(extraArgs$nObs)) nObs <- extraArgs$nObs
   init <- extraArgs$init
+  init$I1 <- ceiling(param$I0)
+  param$I0 <- NULL
   start <- extraArgs$start
   today <- extraArgs$today
   param$dt <- extraArgs$dt
@@ -56,6 +58,10 @@ mod_wrap <- function(param, nsim, extraArgs = extraArgs, ...) {
     # idx <- which(colSums(s1) != 0)
     return( t(s1) )
   } else {
-    return( t(apply(simul[ , report_times], 1, diff)) )
+    if(nrow(simul) == 1) {
+      return(diff(simul[ , report_times]))
+    } else {
+      return( t(apply(simul[ , report_times], 1, diff)) )
+    }
   }
 }
