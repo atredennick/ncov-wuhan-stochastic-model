@@ -1,34 +1,5 @@
----
-title: "Estimation scheme for fitting the stochastic model for the transmission of 2019-nCov in Hubei"
-author: "Andrew Tredennick & John Drake"
-date: "`r format(Sys.time(), '%B %d, %Y')`"
-header-includes:
-  - \usepackage{amsmath}
-output:
-  pdf_document: default
-  html_document:
-    df_print: paged
----
 
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE, cache=FALSE, warning = FALSE, message = FALSE)
-```
-
-## Introduction
-
-This document describes a proposed estimation scheme for fitting the stochastic model (described elsewhere) of COVID-19 transmission to data.
-We plan to use Approximate Bayesian Computation to estimate unknown parameters.
-The posterior distribution of parameters will be explored using MCMC.
-While the end goal is estimate parameters given real data, we start by using the model itself to simulate a trajectory of disease transmission and tuning the model fitting process to ensure we can recover known parameters.
-
-
-## Simulated data
-
-Here we simulate data from the stochastic model using the ```simulators.R``` functions.
-The ```simulators.R``` functions are wrappers around the core model functions written by Drake and Rohani.
-
-
-```{r create-sims}
+## ----create-sims---------------------------------------------------------
 # First source the necessary functions
 source("stochastic-model.R")  # the stochastic disease transmission model
 source("simulators.R")  # simulator wrappers
@@ -55,34 +26,22 @@ init <- list(S=59002000, E1=0, E2=0, E3=0, E4=0, E5=0, E6=0,
 extraArgs$init <- init
 
 # Simulate from the model
-res <- mod_wrap(param = log(unlist(theta)), nsim = 20, extraArgs = extraArgs)
+res <- mod_wrap(param = log(unlist(theta)), nsim = 2, extraArgs = extraArgs)
 
 matplot(t(res), type = "l", col = col.cases.ci, lty = 1, 
         main = "Simulated trajectories of COVID-19",
         xlab = "Day", ylab = "Number of new cases")
-```
 
-We can save one simulated trajectory as "data" for testing of the estimation scheme.
 
-```{r sim-data}
+## ----sim-data------------------------------------------------------------
 obs_data <- mod_wrap(param = log(unlist(theta)), nsim = 1, extraArgs = extraArgs)
 extraArgs$obsData <- obs_data
 extraArgs$nObs <- length(obs_data)
 plot(obs_data, type='b',  xlab='Day', col = col.cases,
      ylab='Number of new cases', main='Simulated COVID-19 cases in Hubei')
-```
 
-## Summary statistics for the ABC
 
-Fitting models using ABC requires calculating a vector of summary statistics ($S$) that summarize the observed time series and simulated trajectories.
-The summary statistics ($S_{\text{sim}}$) from simulated time series are compared to the summary statistics of the observed time series ($S_{\text{obs}}$) using a distance function $d$.
-To begin with, I used a simple $d$ function that calculates the mean absolute diference across all $N$ summary statistics: $\sum^{N}_{i=1} |S_{i,\text{obs}} - S_{i,\text{sim}}| / N$.
-
-For our particular problem, I used the following summary statistics based on phases of the epidemic that are defined by case numbers.
-Specifically, we used a five day moving average of the differences of log observed new cases (plus 10) to define the following phases: day at which the the moving average of log differences exceeds 0.1 ($d_0$) and the day at which the moving average of log differences drops below -0.01 ($d_1$).
-The plot below shows the time series of the five-day moving average of the differences of new cases, along with the calculated break points defined above
-
-```{r plot-ma}
+## ----plot-ma-------------------------------------------------------------
 ma <- function(x, n = 5){stats::filter(x, rep(1 / n, n), sides = 2)}
 stat_times <- ma(diff(log(obs_data+10)), n = 5)
 d0 <- min(which(stat_times > 0.1))
@@ -95,23 +54,9 @@ abline(v = c(d0, d1), col = "red")
 plot(obs_data, type='b',  xlab='Day', col = col.cases,
      ylab='Number of new cases', cex = 0.5)
 abline(v = c(d0, d1), col = "red")
-```
 
-The summary statistics are as follows:
 
-1. Maximum incidence before day $d_0$ (stuttering chain of tranmission)
-2. Maximum incidence between day $d_0$ and day $d_1$ (exponential phase)
-3. Maximum incidence after day $d_1$ (decling phase)
-4. Cumulative incidence before day $d_0$
-5. Cumulative incidence between day $d_0$ and day $d_1$
-6. Cumulative incidence after day $d_1$
-7. Maximum incidence along the whole trajectory
-8. Day of epidemic peak (timing of max incidence)
-9. Final size of epidemic (total incidence)
-
-Now we code up calculations for these summary statistics for ```synlik```.
-
-```{r summary-stats}
+## ----summary-stats-------------------------------------------------------
 covid_stats <- function(x, extraArgs, ...) {
   ## obsData is a vector of observed path
   ## x is a M by n.t matrix of paths, each row of 'x' is a replicate
@@ -156,36 +101,26 @@ covid_stats <- function(x, extraArgs, ...) {
   X0 <- cbind(X0, apply(x, 1, sum))
   return(X0)
 }
-```
 
 
-Here are example statistics from a few simulations.
-
-```{r ex-stats}
+## ----ex-stats------------------------------------------------------------
 summaries <- covid_stats(x = res, extraArgs = extraArgs)
 print(summaries)
-```
 
-And the statistics from the "data".
 
-```{r obs-stats}
+## ----obs-stats-----------------------------------------------------------
 obs_summaries <- covid_stats(x = obs_data, extraArgs = extraArgs)
 print(obs_summaries)
-```
 
-Last, we define a distance function $d$.
-It is important to know how $d$ might vary due to model stochasticity alone because we have to set a threshold value ($\varepsilon$) that $d$ must fall below for acceptance of a parameter vector in the ABC-MCMC algorithm.
-So, I simulated 200 trajectories from the same parameter values and calculated the distances of the summary statistics.
-The resulting histogram indicates an initial $\varepsilon \approx 20$.
 
-```{r dist}
+## ----dist----------------------------------------------------------------
 d <- function(xsim, xobs) {
   mean(abs(xobs - xsim))
 }
 
 d(summaries[2,], obs_summaries)
 
-dsims <- 50
+dsims <- 500
 dist <- numeric(dsims)
 for(i in 1:dsims) {
   res <- mod_wrap(param = log(unlist(theta)), nsim = 1, extraArgs = extraArgs)
@@ -194,16 +129,11 @@ for(i in 1:dsims) {
 }
 hist(dist, main = "Distribution of statistic distances at known parameters",
      xlab = "d")
-abline(v = quantile(dist, 0.8), col = "red")
-epsilon <- quantile(dist, 0.8)
+abline(v = median(dist), col = "red")
+epsilon <- as.numeric(round(quantile(dist, 0.8)))
 
-```
 
-## ABC Algorithm
-
-Here I use ABC-MCMC to estimate $\beta_0$ assuming all other parameters are known.
-
-```{r abc}
+## ----abc-----------------------------------------------------------------
 get_prior_d <- function(theta, theta_prime) {
   d_theta <- dnorm(theta[1], log(0.657), 0.5) +
              dnorm(theta[2], log(1), 0.5) +
@@ -218,15 +148,15 @@ get_prior_d <- function(theta, theta_prime) {
 }
 
 
-run_abc <- function(nburn, nsamp, epsilon, f_stats, f_distance, f_model, 
+run_abc <- function(nburn, nsamp, epsilon, f_stats, f_distance, f_model, f_prior,
                     init_theta, obs_data, ...) {
   results <- matrix(nrow = nsamp, ncol = length(init_theta))
   i <- 0
   theta <- init_theta
   while(i < (nburn+nsamp)) {
     theta_prime <- rnorm(length(theta), theta, sd = c(0.1, 0, 0, 0))
-    p <- f_prior(as.numeric(theta), theta_prime)
-    if(rbinom(1, 1, p) == 1) {
+    # p <- f_prior(as.numeric(theta), theta_prime)
+    # if(rbinom(1, 1, p) == 1) {
       m <- f_model(param = theta_prime, nsim = 1, extraArgs = extraArgs)
       mS <- f_stats(x = m, extraArgs = extraArgs)
       mO <- f_stats(x = obs_data, extraArgs = extraArgs)
@@ -234,7 +164,7 @@ run_abc <- function(nburn, nsamp, epsilon, f_stats, f_distance, f_model,
       if(dtest < epsilon) {
         theta <- theta_prime
       }
-    }
+    # }
 #     propsal = c
 #     accept with p exp(prior(propsal) – prior(current))
 #     if accept do ABC step
@@ -243,21 +173,34 @@ run_abc <- function(nburn, nsamp, epsilon, f_stats, f_distance, f_model,
   }
   return(results)
 }
-```
 
-```{r test, eval = FALSE}
+
+## ----test----------------------------------------------------------------
 init_theta <- log(c(beta0 = 0.5, beta.factor = 1, sigma = 1/6.4, I0 = 1))
-out_mcmc <- run_abc(nburn = 2000, nsamp = 5000, epsilon = 10, f_stats = covid_stats, 
+out_mcmc <- run_abc(nburn = 2000, nsamp = 5000, epsilon = epsilon, f_stats = covid_stats, 
                     f_distance = d, f_model = mod_wrap, f_prior = get_prior_d,
-                    init_theta = init_theta, obs_data = obs_data)
-```
+                    init_theta = init_theta, obs_data = obs_data, extraArgs)
 
-We are able to retrieve the true parameter estimate, as $\beta_0 = 0.657$ falls well within the posterior distribution estimated by the model fitting algorithm.
-Note that the initial value of $\beta_0 = 0.5$ falls outside the posterior distribution, indicating the algorithm does move away from unlikely values effectively.
+saveRDS(object = out_mcmc, file = "mcmc-chains-abc.RDS")
 
-```{r plot-post, fig.height = 4}
-# Plot the chain and posterior distribution of beta0
-out_mcmc <- readRDS("mcmc-chains-abc.RDS")
+# Plot the chains
+# png("mcmc-chains.png", width = 8.5, height = 6, units = "in", res = 300)
+# par(mfrow = c(2, 2))
+# plot(exp(out_mcmc[,1]), type = "l", xlab = "Iteration",
+#      ylab = expression(log(beta)), las = 1)
+# abline(h = as.numeric(theta[1]), col = "red")
+# plot(out_mcmc[,2], type = "l", xlab = "Iteration",
+#      ylab = expression(log(xi)), las = 1)
+# abline(h = log(as.numeric(theta[2])), col = "red")
+# plot(out_mcmc[,3], type = "l", xlab = "Iteration",
+#      ylab = expression(log(sigma)), las = 1)
+# abline(h = log(as.numeric(theta[3])), col = "red")
+# plot(out_mcmc[,4], type = "l", xlab = "Iteration",
+#      ylab = expression(log(I[0])), las = 1)
+# abline(h = as.numeric(theta[4]), col = "red")
+# dev.off()
+
+png("mcmc-chains.png", width = 8.5, height = 4, units = "in", res = 300)
 par(mfrow = c(1,2))
 plot(exp(out_mcmc[,1]), type = "l", xlab = "MCMC Iteration",
           ylab = expression(beta), las = 1, bty = "n", main = "Traceplot of ABC-MCMC")
@@ -265,7 +208,5 @@ abline(h = as.numeric(theta[1]), col = "red", lwd = 2)
 hist(exp(out_mcmc[,1]), breaks = 15, col = "grey", xlab = expression(beta),
      las = 1, main = "Posterior Distribution")
 abline(v = as.numeric(theta[1]), col = "red", lwd = 2)
-```
-
-
+dev.off()
 
